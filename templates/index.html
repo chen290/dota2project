@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dota Analysis</title>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+</head>
+<body>
+    <h2>Dota Analysis</h2>
+
+    <!-- Mode Selection -->
+    <label for="mode">Mode:</label>
+    <select id="mode">
+        <option value="Hero">Hero</option>
+        <option value="Player">Player</option>
+    </select>
+
+    <!-- Hero Mode Selection -->
+    <div id="hero_mode">
+        <label for="player_dropdown">Player ID:</label>
+        <select id="player_dropdown"></select>
+
+        <label for="hero_dropdown">Hero:</label>
+        <select id="hero_dropdown"></select>
+    </div>
+
+    <!-- Player Mode Input -->
+    <div id="player_mode" style="display: none;">
+        <label for="player_text">Player ID:</label>
+        <input type="text" id="player_text" placeholder="Enter player ID">
+    </div>
+
+    <button id="fetch_btn">Fetch Data</button>
+
+    <div id="result">
+        <!-- Rendered table and summary will go here -->
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            // Populate hero and player dropdowns via backend API if needed
+            // For demo purpose, hardcoded example options:
+            const heroOptions = ["Phantom Lancer", "Puck", "Earthshaker"];
+            const playerOptions = [302004172, 129213402, 138951493];
+
+            heroOptions.forEach(h => $("#hero_dropdown").append(`<option value="${h}">${h}</option>`));
+            playerOptions.forEach(p => $("#player_dropdown").append(`<option value="${p}">${p}</option>`));
+
+            // Mode toggle
+            $("#mode").change(function() {
+                if ($(this).val() === "Hero") {
+                    $("#hero_mode").show();
+                    $("#player_mode").hide();
+                } else {
+                    $("#hero_mode").hide();
+                    $("#player_mode").show();
+                }
+            });
+
+            // Fetch button click
+            $("#fetch_btn").click(function() {
+                let data = { mode: $("#mode").val() };
+
+                if (data.mode === "Hero") {
+                    data.player_id = $("#player_dropdown").val();
+                    data.hero_name = $("#hero_dropdown").val();
+                } else {
+                    data.player_id = $("#player_text").val();
+                }
+
+                $.post("/call_function", data, function(response) {
+                    if (response.html) {
+                        $("#result").html(response.html);
+                        $("table.display").DataTable({
+                            "paging": true,
+                            "searching": true,
+                            "ordering": true
+                        });
+                    } else {
+                        $("#result").html("<b>No data returned.</b>");
+                    }
+                }, "json").fail(function() {
+                    $("#result").html("<b>Error calling backend.</b>");
+                });
+            });
+        });
+    </script>
+</body>
+</html>

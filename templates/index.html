@@ -23,12 +23,32 @@
 
         <label for="hero_dropdown">Hero:</label>
         <select id="hero_dropdown"></select>
+
+        <label for="duration_dropdown">Duration:</label>
+        <select id="duration_dropdown">
+            <option value="1_month">1 Month</option>
+            <option value="3_months">3 Months</option>
+            <option value="6_months" selected>6 Months</option>
+            <option value="1_year">1 Year</option>
+        </select>
     </div>
 
     <!-- Player Mode Input -->
     <div id="player_mode" style="display: none;">
-        <label for="player_text">Player ID:</label>
-        <input type="text" id="player_text" placeholder="Enter player ID">
+        <label for="player_id">Your Account ID:</label>
+        <input type="text" id="player_id" placeholder="302004172">
+
+        <label for="others_account_id">Others Account ID:</label>
+        <input type="text" id="others_account_id" placeholder="Enter Others Account ID">
+
+        <label for="duration_dropdown_player">Duration:</label>
+        <select id="duration_dropdown_player">
+            <option value="1_month">1 Month</option>
+            <option value="3_months">3 Months</option>
+            <option value="6_months">6 Months</option>
+            <option value="1_year">1 Year</option>
+            <option value="all_time" selected>All Time</option>
+        </select>
     </div>
 
     <button id="fetch_btn">Fetch Data</button>
@@ -39,16 +59,39 @@
 
     <script>
         $(document).ready(function() {
+            // Store current AJAX request for cancellation
+            let currentRequest = null;
+            
             // Populate hero and player dropdowns via backend API if needed
             // For demo purpose, hardcoded example options:
-            const heroOptions = ["Phantom Lancer", "Puck", "Earthshaker"];
             const playerOptions = [302004172, 129213402, 138951493];
 
-            heroOptions.forEach(h => $("#hero_dropdown").append(`<option value="${h}">${h}</option>`));
             playerOptions.forEach(p => $("#player_dropdown").append(`<option value="${p}">${p}</option>`));
+            
+            // Fetch hero names from backend
+            $.get("/get_heroes", function(data) {
+                data.heroes.forEach(hero => {
+                    $("#hero_dropdown").append(`<option value="${hero.name}">${hero.name}</option>`);
+                });
+            });
+            
+            // Default fill your account ID
+            $("#player_id").val("302004172");
+
+            // Function to abort current request
+            function abortCurrentRequest() {
+                if (currentRequest) {
+                    currentRequest.abort();
+                    currentRequest = null;
+                    $("#result").html("<b>Request cancelled.</b>");
+                }
+                // Also notify backend to cancel
+                $.post("/cancel_request");
+            }
 
             // Mode toggle
             $("#mode").change(function() {
+                abortCurrentRequest();
                 if ($(this).val() === "Hero") {
                     $("#hero_mode").show();
                     $("#player_mode").hide();
@@ -58,30 +101,58 @@
                 }
             });
 
+            // Abort request when any dropdown changes
+            $("#player_dropdown, #hero_dropdown, #duration_dropdown, #duration_dropdown_player").change(function() {
+                abortCurrentRequest();
+            });
+            
+            // Save my account ID when it changes
+            $("#player_id").on('input', function() {
+                localStorage.setItem('myAccountId', $(this).val());
+            });
+
             // Fetch button click
             $("#fetch_btn").click(function() {
+                // Abort any existing request first
+                abortCurrentRequest();
+                
+                // Reset cancellation state before starting new request
+                $.post("/reset_cancellation");
+                
                 let data = { mode: $("#mode").val() };
 
                 if (data.mode === "Hero") {
                     data.player_id = $("#player_dropdown").val();
                     data.hero_name = $("#hero_dropdown").val();
-                } else {
-                    data.player_id = $("#player_text").val();
+                    data.duration = $("#duration_dropdown").val();
+                } else if (data.mode === "Player") {
+                    data.player_id = $("#player_id").val();
+                    data.other_player_id = $("#others_account_id").val();
+                    data.duration = $("#duration_dropdown_player").val();
                 }
 
-                $.post("/call_function", data, function(response) {
+                // Show loading message
+                $("#result").html("<b>Fetching data...</b>");
+
+                // Store the current request
+                currentRequest = $.post("/call_function", data, function(response) {
                     if (response.html) {
                         $("#result").html(response.html);
                         $("table.display").DataTable({
                             "paging": true,
                             "searching": true,
-                            "ordering": true
+                            "ordering": true,
+                            "order": [[2, "desc"]]  // Sort by Matches column (index 3) in descending order
                         });
                     } else {
                         $("#result").html("<b>No data returned.</b>");
                     }
-                }, "json").fail(function() {
-                    $("#result").html("<b>Error calling backend.</b>");
+                    currentRequest = null;
+                }, "json").fail(function(xhr, status, error) {
+                    if (status !== 'abort') {
+                        $("#result").html("<b>Error calling backend.</b>");
+                    }
+                    currentRequest = null;
                 });
             });
         });

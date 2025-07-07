@@ -5,6 +5,25 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <style>
+        /* Style for match IDs column to handle long lists */
+        .match-ids-cell {
+            max-width: 300px;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        /* Ensure table doesn't overflow */
+        .display {
+            table-layout: auto;
+            width: 100%;
+        }
+        
+        .display td {
+            word-wrap: break-word;
+            max-width: 200px;
+        }
+    </style>
 </head>
 <body>
     <h2>Dota Analysis</h2>
@@ -57,10 +76,22 @@
         <!-- Rendered table and summary will go here -->
     </div>
 
+    <!-- Progress Bar -->
+    <div id="progress_container" style="display: none; margin: 20px 0;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+            <span id="progress_text">Processing...</span>
+            <span id="progress_percentage">0%</span>
+        </div>
+        <div style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden;">
+            <div id="progress_bar" style="width: 0%; height: 20px; background-color: #4CAF50; transition: width 0.3s ease;"></div>
+        </div>
+    </div>
+
     <script>
         $(document).ready(function() {
             // Store current AJAX request for cancellation
             let currentRequest = null;
+            let progressInterval = null;
             
             // Populate hero and player dropdowns via backend API
             // Fetch player names from backend
@@ -96,6 +127,7 @@
                     currentRequest = null;
                     $("#result").html("<b>Request cancelled.</b>");
                 }
+                hideProgress();
                 // Also notify backend to cancel
                 $.post("/cancel_request");
             }
@@ -132,24 +164,36 @@
                     data.duration = $("#duration_dropdown_player").val();
                 }
 
-                // Show loading message
+                // Show loading message and progress bar
                 $("#result").html("<b>Fetching data...</b>");
+                showProgress();
 
                 // Store the current request
                 currentRequest = $.post("/call_function", data, function(response) {
+                    hideProgress();
                     if (response.html) {
                         $("#result").html(response.html);
                         $("table.display").DataTable({
                             "paging": true,
                             "searching": true,
                             "ordering": true,
-                            "order": [[2, "desc"]]  // Sort by Matches column (index 3) in descending order
+                            "order": [[2, "desc"]],  // Sort by Matches column (index 2) in descending order
+                            "columnDefs": [
+                                {
+                                    "targets": -1, // Last column (Match IDs)
+                                    "className": "match-ids-cell",
+                                    "width": "300px"
+                                }
+                            ],
+                            "scrollX": true,
+                            "autoWidth": false
                         });
                     } else {
                         $("#result").html("<b>No data returned.</b>");
                     }
                     currentRequest = null;
                 }, "json").fail(function(xhr, status, error) {
+                    hideProgress();
                     if (status !== 'abort') {
                         $("#result").html("<b>Error calling backend.</b>");
                     }
@@ -184,8 +228,50 @@
             // Auto-fetch when other player ID changes
             $("#others_account_id").on('input', function() {
                 fetchPlayerName($(this).val(), $("#other_player_name_display"));
-                fetchData();
             });
+
+            // Handle Enter key on account ID inputs
+            $("#player_id, #others_account_id").on('keypress', function(e) {
+                if (e.which === 13) { // Enter key
+                    const playerId = $("#player_id").val().trim();
+                    const otherPlayerId = $("#others_account_id").val().trim();
+                    
+                    if (playerId && otherPlayerId) {
+                        fetchData();
+                    }
+                }
+            });
+
+            // Function to show progress bar
+            function showProgress() {
+                $("#progress_container").show();
+                $("#progress_bar").css("width", "0%");
+                $("#progress_percentage").text("0%");
+                $("#progress_text").text("Processing...");
+                
+                // Start polling for progress updates after a short delay
+                setTimeout(function() {
+                    progressInterval = setInterval(function() {
+                        $.get("/get_progress", function(data) {
+                            if (data.total > 0) {
+                                const percentage = data.percentage;
+                                $("#progress_bar").css("width", percentage + "%");
+                                $("#progress_percentage").text(percentage + "%");
+                                $("#progress_text").text(`Processing match ${data.current} of ${data.total}`);
+                            }
+                        });
+                    }, 500); // Poll every 500ms
+                }, 100); // Start polling after 100ms
+            }
+            
+            // Function to hide progress bar
+            function hideProgress() {
+                $("#progress_container").hide();
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                }
+            }
         });
     </script>
 </body>

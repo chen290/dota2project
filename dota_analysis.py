@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import logging
+import numpy as np
 from collections import defaultdict
 from datetime import datetime, timezone
 import statistics
@@ -212,9 +213,10 @@ class Match:
 
 
 class Matches:
-    def __init__(self, account_id: int, cancellation_check: Optional[Any] = None) -> None:
+    def __init__(self, account_id: int, cancellation_check: Optional[Any] = None, progress_callback=None) -> None:
         self.account_id: int = account_id
         self.cancellation_check: Optional[Any] = cancellation_check
+        self.progress_callback = progress_callback
         self.matches: List[Match] = [
             Match(match_json)
             for match_json in g_cache.get(
@@ -251,10 +253,16 @@ class Matches:
         if not matches:
             return pd.DataFrame(columns=['Hero Name', 'GPM', 'Matches', 'Wins', 'Win Rate'])
         
-        # Use more efficient data structure: dict with tuple (gpm_sum, count, wins)
-        hero_stats: Dict[int, Tuple[int, int, int]] = {}
+        # Pre-allocate data structures for better performance
+        all_enemy_hero_ids = []
+        all_gpms = []
+        all_wins = []
         
         for i, match in enumerate(matches):
+            # Update progress every match
+            if self.progress_callback:
+                self.progress_callback(i + 1, len(matches))
+                
             if i % 10 == 0:
                 self._raise_if_cancelled()
                 
@@ -277,27 +285,51 @@ class Matches:
                     enemy_hero_id = player.get_hero_id()
                     is_win = match.get_winner_team() == self_team
                     
-                    if enemy_hero_id in hero_stats:
-                        gpm_sum, count, wins = hero_stats[enemy_hero_id]
-                        hero_stats[enemy_hero_id] = (gpm_sum + self_gpm, count + 1, wins + (1 if is_win else 0))
-                    else:
-                        hero_stats[enemy_hero_id] = (self_gpm, 1, 1 if is_win else 0)
+                    all_enemy_hero_ids.append(enemy_hero_id)
+                    all_gpms.append(self_gpm)
+                    all_wins.append(1 if is_win else 0)
+            
             logger.debug(f"Processing match {match.get_id()}")
 
-        if not hero_stats:
+        # Final progress update
+        if self.progress_callback:
+            self.progress_callback(len(matches), len(matches))
+
+        if not all_enemy_hero_ids:
             return pd.DataFrame(columns=['Hero Name', 'GPM', 'Matches', 'Wins', 'Win Rate'])
         
+        # Convert to NumPy arrays for efficient computation
+        hero_ids_array = np.array(all_enemy_hero_ids)
+        gpms_array = np.array(all_gpms)
+        wins_array = np.array(all_wins)
+        
+        # Get unique hero IDs
+        unique_hero_ids = np.unique(hero_ids_array)
+        
         records = []
-        for hero_id, (gpm_sum, count, wins) in hero_stats.items():
-            hero_name = g_id_name_map.get(hero_id, f"Unknown Hero ({hero_id})")
+        for hero_id in unique_hero_ids:
+            # Skip None values
+            if hero_id is None:
+                continue
+                
+            # Use NumPy boolean indexing for efficient filtering
+            mask = hero_ids_array == hero_id
+            hero_gpms = gpms_array[mask]
+            hero_wins = wins_array[mask]
+            
+            count = len(hero_gpms)
+            wins = int(np.sum(hero_wins))
+            gpm_avg = float(np.mean(hero_gpms))
             win_rate = (wins / count * 100) if count > 0 else 0
+            
+            hero_name = g_id_name_map.get(int(hero_id), f"Unknown Hero ({int(hero_id)})")
             
             records.append({
                 'Hero Name': hero_name,
                 'Wins': wins,
                 'Matches': count,
                 'Win Rate': round(win_rate, 2),
-                'GPM': round(gpm_sum / count, 2),
+                'GPM': round(gpm_avg, 2),
             })
         
         return pd.DataFrame(records)
@@ -336,6 +368,8 @@ class Matches:
         teammate_count = 0
         opponent_wins = 0
         opponent_count = 0
+        teammate_match_ids = []
+        opponent_match_ids = []
         
         for match in my_matches:
             match_id = match.get_id()
@@ -346,10 +380,12 @@ class Matches:
                 
                 if is_teammate:
                     teammate_count += 1
+                    teammate_match_ids.append(match_id)
                     if is_win:
                         teammate_wins += 1
                 else:
                     opponent_count += 1
+                    opponent_match_ids.append(match_id)
                     if is_win:
                         opponent_wins += 1
         
@@ -362,14 +398,16 @@ class Matches:
                 'Role': 'Teammate',
                 'Wins': teammate_wins,
                 'Matches': teammate_count,
-                'Win Rate': round(teammate_winrate, 2)
+                'Win Rate': round(teammate_winrate, 2),
+                'Match IDs': '<br>'.join(map(str, teammate_match_ids)) if teammate_match_ids else 'None'
             },
             {
                 'Player': player_name,
                 'Role': 'Opponent',
                 'Wins': opponent_wins,
                 'Matches': opponent_count,
-                'Win Rate': round(opponent_winrate, 2)
+                'Win Rate': round(opponent_winrate, 2),
+                'Match IDs': '<br>'.join(map(str, opponent_match_ids)) if opponent_match_ids else 'None'
             }
         ]
         
@@ -377,14 +415,6 @@ class Matches:
 
 
 if __name__ == "__main__":
-    # Example usage of generate_table function
-    # selected_player = ACCOUNT_IDS[0]
-    # matches = Matches(selected_player)
-    # stats = matches.get_stats_per_enemy_hero(1)  # Example hero_id
-    # df = generate_table(stats)
-    # print(df)
-    
-    # g_cache.flush()
     import requests
 
     match_id = 8359187117

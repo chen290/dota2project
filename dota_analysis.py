@@ -3,6 +3,7 @@ import time
 import json
 import os
 import tempfile
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 import statistics
@@ -10,11 +11,22 @@ from enum import Enum
 from typing import Optional, Any, Dict, List, Tuple
 import pandas as pd
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('dota_analysis.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 ACCOUNT_IDS: Tuple[int, ...] = (302004172, 129213402, 138951493, 285975878)
 SECONDS_PER_YEAR = 31_536_000
 SECONDS_PER_6_MONTHS = SECONDS_PER_YEAR // 2
 SECONDS_PER_3_MONTHS = SECONDS_PER_6_MONTHS // 2
-SECONDS_PER_MONTH = SECONDS_PER_6_MONTHS // 3
+SECONDS_PER_MONTH = SECONDS_PER_YEAR // 12
 
 
 class Team(Enum):
@@ -28,6 +40,7 @@ class Dota2Cache:
     ) -> None:
         self.cache_file: str = cache_file
         self.unsaved_count: int = 0
+        self.cache_timestamps: Dict[str, float] = {}
         os.makedirs(os.path.dirname(cache_file), exist_ok=True)
         self.cache: Dict[str, Any] = self._load_cache()
 
@@ -35,17 +48,31 @@ class Dota2Cache:
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, "r") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # Load both cache data and timestamps
+                    if isinstance(data, dict) and "cache" in data and "timestamps" in data:
+                        self.cache_timestamps = data["timestamps"]
+                        return data["cache"]
+                    else:
+                        # Legacy format - just cache data
+                        return data
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Warning: Failed to load cache ({e}), exiting.")
-                exit()
-        print("cache not found, creating new cache")
+                logger.warning(f"Failed to load cache ({e}), creating new cache.")
+                return {}
+        logger.info("Cache not found, creating new cache")
         return {}
 
     def get(self, url: str, use_cache: bool = True) -> Any:
-        if url in self.cache and use_cache:
-            return self.cache[url]
-        print("fetching", url)
+        current_time = time.time()
+        cache_expiry = 3600  # 1 hour in seconds
+        
+        # Check if we should use cache (either use_cache=True or data is fresh)
+        if url in self.cache:
+            if use_cache or (url in self.cache_timestamps and 
+                           current_time - self.cache_timestamps[url] < cache_expiry):
+                return self.cache[url]
+        
+        logger.debug(f"Fetching {url}")
         while True:
             response = requests.get(url)
             if response.status_code in (429, 500):
@@ -56,6 +83,7 @@ class Dota2Cache:
 
         data = response.json()
         self.cache[url] = data
+        self.cache_timestamps[url] = current_time
         self.unsaved_count += 1
         if self.unsaved_count % 50 == 0:
             self.flush()
@@ -68,16 +96,20 @@ class Dota2Cache:
         temp_fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(self.cache_file))
         try:
             with os.fdopen(temp_fd, "w") as f:
-                json.dump(self.cache, f)
+                # Save both cache data and timestamps
+                json.dump({
+                    "cache": self.cache,
+                    "timestamps": self.cache_timestamps
+                }, f)
             os.replace(temp_path, self.cache_file)
-            print("Cache saved successfully.")
+            logger.debug("Cache saved successfully.")
         except Exception as e:
-            print(f"Error saving cache: {e}")
+            logger.error(f"Error saving cache: {e}")
             if os.path.exists(temp_path):
                 os.remove(temp_path)
         self.unsaved_count = 0
 
-print("loading cache")
+logger.info("Loading cache")
 g_cache = Dota2Cache()
 
 
@@ -87,7 +119,26 @@ def fetch_hero_id_name_mapping() -> Dict[int, str]:
     return {hero["id"]: hero["localized_name"] for hero in data}
 
 
+def fetch_player_name(account_id: int) -> str:
+    """Fetch player name from OpenDota API"""
+    try:
+        data = g_cache.get(f"https://api.opendota.com/api/players/{account_id}")
+        g_cache.flush()
+        return data.get("profile", {}).get("personaname", f"Unknown Player ({account_id})")
+    except Exception as e:
+        logger.error(f"Error fetching player name for {account_id}: {e}")
+        return f"Unknown Player ({account_id})"
+
+
 g_id_name_map: Dict[int, str] = fetch_hero_id_name_mapping()
+g_player_name_cache: Dict[int, str] = {}
+
+
+def get_player_name(account_id: int) -> str:
+    """Get player name with caching"""
+    if account_id not in g_player_name_cache:
+        g_player_name_cache[account_id] = fetch_player_name(account_id)
+    return g_player_name_cache[account_id]
 
 
 class Player:
@@ -106,6 +157,13 @@ class Player:
     def get_gpm(self) -> int:
         return self.player_json["gold_per_min"]
 
+    def get_name(self) -> str:
+        """Get player name from account ID"""
+        account_id = self.try_get_id()
+        if account_id:
+            return get_player_name(account_id)
+        return "Anonymous Player"
+
 
 class Match:
     def __init__(self, match_json: Dict[str, Any]) -> None:
@@ -122,7 +180,10 @@ class Match:
             self.full_match_json = g_cache.get(
                 f"https://api.opendota.com/api/matches/{match_id}"
             )
-            self.players = [Player(pj) for pj in self.full_match_json["players"]]
+            if self.full_match_json and "players" in self.full_match_json:
+                self.players = [Player(pj) for pj in self.full_match_json["players"]]
+            else:
+                self.players = []
 
     def get_player_hero_id(self) -> int:
         return self.simple_match_json["hero_id"]
@@ -164,15 +225,11 @@ class Matches:
         g_cache.flush()
 
     def _check_cancellation(self) -> bool:
-        print("checking cancellation 2")
         if self.cancellation_check:
-            print("checking cancellation 3")
-            print(self.cancellation_check())
             return self.cancellation_check()
         return False
 
     def _raise_if_cancelled(self) -> None:
-        print("checking cancellation")
         if self._check_cancellation():
             raise InterruptedError("Request cancelled by user")
 
@@ -188,97 +245,127 @@ class Matches:
         ]
 
     def get_stats_per_enemy_hero(
-        self, hero_id: int, seconds_ago: int = SECONDS_PER_YEAR
+        self, hero_id: Optional[int], seconds_ago: int = SECONDS_PER_YEAR
     ) -> pd.DataFrame:
         matches = self.get_matches(hero_id, seconds_ago)
-        hero_to_gpm_list: Dict[int, List[int]] = defaultdict(list)
-        hero_to_count_list: Dict[int, int] = defaultdict(int)
-        hero_to_win_count_list: Dict[int, int] = defaultdict(int)
+        if not matches:
+            return pd.DataFrame(columns=['Hero Name', 'GPM', 'Matches', 'Wins', 'Win Rate'])
+        
+        # Use more efficient data structure: dict with tuple (gpm_sum, count, wins)
+        hero_stats: Dict[int, Tuple[int, int, int]] = {}
         
         for i, match in enumerate(matches):
             if i % 10 == 0:
                 self._raise_if_cancelled()
                 
             players = match.get_players()
-            self_team = next(
-                (p.get_team() for p in players if p.try_get_id() == self.account_id),
-                None,
-            )
-            self_gpm = next(
-                (p.get_gpm() for p in players if p.try_get_id() == self.account_id),
-                None,
-            )
-
+            # Find self player info in one pass
+            self_team = None
+            self_gpm = None
             for player in players:
-                if player.get_team() != self_team and self_gpm:
-                    hero_to_gpm_list[player.get_hero_id()].append(self_gpm)
-                    hero_to_count_list[player.get_hero_id()] += 1
-                    hero_to_win_count_list[player.get_hero_id()] += 1 if match.get_winner_team() == self_team else 0
+                if player.try_get_id() == self.account_id:
+                    self_team = player.get_team()
+                    self_gpm = player.get_gpm()
+                    break
+            
+            if self_team is None or self_gpm is None:
+                continue
+                
+            # Process enemy players
+            for player in players:
+                if player.get_team() != self_team:
+                    enemy_hero_id = player.get_hero_id()
+                    is_win = match.get_winner_team() == self_team
+                    
+                    if enemy_hero_id in hero_stats:
+                        gpm_sum, count, wins = hero_stats[enemy_hero_id]
+                        hero_stats[enemy_hero_id] = (gpm_sum + self_gpm, count + 1, wins + (1 if is_win else 0))
+                    else:
+                        hero_stats[enemy_hero_id] = (self_gpm, 1, 1 if is_win else 0)
+            logger.debug(f"Processing match {match.get_id()}")
 
-        if not hero_to_gpm_list:
+        if not hero_stats:
             return pd.DataFrame(columns=['Hero Name', 'GPM', 'Matches', 'Wins', 'Win Rate'])
         
         records = []
-        for hero_id, gpms in hero_to_gpm_list.items():
+        for hero_id, (gpm_sum, count, wins) in hero_stats.items():
             hero_name = g_id_name_map.get(hero_id, f"Unknown Hero ({hero_id})")
-            win_rate = (hero_to_win_count_list[hero_id] / hero_to_count_list[hero_id] * 100) if hero_to_count_list[hero_id] > 0 else 0
+            win_rate = (wins / count * 100) if count > 0 else 0
             
             records.append({
                 'Hero Name': hero_name,
-                'Wins': hero_to_win_count_list[hero_id],
-                'Matches': hero_to_count_list[hero_id],
+                'Wins': wins,
+                'Matches': count,
                 'Win Rate': round(win_rate, 2),
-                'GPM': round(statistics.mean(gpms), 2),
+                'GPM': round(gpm_sum / count, 2),
             })
         
-        df = pd.DataFrame(records)
-        if not df.empty:
-            df = df.sort_values('Matches', ascending=False).reset_index(drop=True)
-        
-        return df
+        return pd.DataFrame(records)
 
     def get_play_with_matches(self, player_id: int, same_team: bool) -> List[Tuple[Match, Match]]:
         others_matches = Matches(player_id).get_matches()
         result = []
         
-        # Since match IDs are sorted in descending order, we can use binary search
-        # or early termination for better performance
-        other_match_ids = {match.get_id() for match in others_matches}
+        # Create a dictionary for O(1) lookup instead of O(n) search
+        other_matches_dict = {}
+        for other_match in others_matches:
+            other_matches_dict[other_match.get_id()] = other_match
         
         for match in self.get_matches():
-            if match.get_id() in other_match_ids:
-                for other_match in others_matches:
-                    if match.get_id() == other_match.get_id():
-                        if (match.get_team() == other_match.get_team()) == same_team:
-                            result.append((match, other_match))
-                        break  # Found the match, no need to continue searching
-                    elif match.get_id() > other_match.get_id():
-                        # Since IDs are sorted in descending order, we can stop searching
-                        break
-        print(result)
+            match_id = match.get_id()
+            if match_id in other_matches_dict:
+                other_match = other_matches_dict[match_id]
+                if (match.get_team() == other_match.get_team()) == same_team:
+                    result.append((match, other_match))
+        
         return result
 
     def get_stats_per_player(self, player_id: int, seconds_ago: int = SECONDS_PER_YEAR) -> pd.DataFrame:
         """Get statistics for playing with/against a specific player"""
-        teammate_matches = self.get_play_with_matches(player_id, True)
-        opponent_matches = self.get_play_with_matches(player_id, False)
+        # Get player name
+        player_name = get_player_name(player_id)
         
-        teammate_count = len(teammate_matches)
-        teammate_wins = sum(1 for match, _ in teammate_matches if match.get_winner_team() == match.get_team())
+        # Get all matches for both players
+        others_matches = Matches(player_id).get_matches()
+        my_matches = self.get_matches()
+        
+        # Create lookup dictionary for other player's matches
+        other_matches_dict = {match.get_id(): match for match in others_matches}
+        
+        teammate_wins = 0
+        teammate_count = 0
+        opponent_wins = 0
+        opponent_count = 0
+        
+        for match in my_matches:
+            match_id = match.get_id()
+            if match_id in other_matches_dict:
+                other_match = other_matches_dict[match_id]
+                is_teammate = match.get_team() == other_match.get_team()
+                is_win = match.get_winner_team() == match.get_team()
+                
+                if is_teammate:
+                    teammate_count += 1
+                    if is_win:
+                        teammate_wins += 1
+                else:
+                    opponent_count += 1
+                    if is_win:
+                        opponent_wins += 1
+        
         teammate_winrate = (teammate_wins / teammate_count * 100) if teammate_count > 0 else 0
-        
-        opponent_count = len(opponent_matches)
-        opponent_wins = sum(1 for match, _ in opponent_matches if match.get_winner_team() == match.get_team())
         opponent_winrate = (opponent_wins / opponent_count * 100) if opponent_count > 0 else 0
         
         records = [
             {
+                'Player': player_name,
                 'Role': 'Teammate',
                 'Wins': teammate_wins,
                 'Matches': teammate_count,
                 'Win Rate': round(teammate_winrate, 2)
             },
             {
+                'Player': player_name,
                 'Role': 'Opponent',
                 'Wins': opponent_wins,
                 'Matches': opponent_count,
@@ -286,9 +373,7 @@ class Matches:
             }
         ]
         
-        df = pd.DataFrame(records)
-        return df
-
+        return pd.DataFrame(records)
 
 
 if __name__ == "__main__":
@@ -306,6 +391,6 @@ if __name__ == "__main__":
     response = requests.post(f"https://api.opendota.com/api/request/{match_id}")
 
     if response.status_code == 200:
-        print("Parse requested successfully.")
+        logger.info("Parse requested successfully.")
     else:
-        print(f"Failed to request parse: {response.status_code}, {response.text}")
+        logger.error(f"Failed to request parse: {response.status_code}, {response.text}")

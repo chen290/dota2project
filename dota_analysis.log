@@ -1,0 +1,48 @@
+2025-07-06 22:47:11,638 - WARNING -  * Debugger is active!
+2025-07-06 22:47:11,646 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:17,674 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:47:19,743 - WARNING -  * Debugger is active!
+2025-07-06 22:47:19,750 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:21,766 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:47:23,793 - WARNING -  * Debugger is active!
+2025-07-06 22:47:23,802 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:25,818 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:47:27,860 - WARNING -  * Debugger is active!
+2025-07-06 22:47:27,868 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:29,885 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:47:31,930 - WARNING -  * Debugger is active!
+2025-07-06 22:47:31,938 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:32,954 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:47:34,214 - INFO - Loading cache
+2025-07-06 22:47:35,022 - WARNING -  * Debugger is active!
+2025-07-06 22:47:35,032 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:37,048 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:47:38,259 - INFO - Loading cache
+2025-07-06 22:47:39,060 - WARNING -  * Debugger is active!
+2025-07-06 22:47:39,068 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:43,091 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:47:44,339 - INFO - Loading cache
+2025-07-06 22:47:45,150 - WARNING -  * Debugger is active!
+2025-07-06 22:47:45,158 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:47:52,190 - INFO -  * Detected change in 'C:/Users/Hanyu/dota2project/dota_analysis.py', reloading
+2025-07-06 22:48:39,750 - INFO - Loading cache
+2025-07-06 22:48:40,599 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-07-06 22:48:40,599 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-06 22:48:40,600 - INFO -  * Restarting with stat
+2025-07-06 22:48:41,592 - INFO - Loading cache
+2025-07-06 22:48:42,455 - WARNING -  * Debugger is active!
+2025-07-06 22:48:42,463 - INFO -  * Debugger PIN: 849-697-426
+2025-07-06 22:48:53,904 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:53] "GET / HTTP/1.1" 200 -
+2025-07-06 22:48:53,918 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:53] "GET /get_players HTTP/1.1" 200 -
+2025-07-06 22:48:54,164 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:54] "POST /cancel_request HTTP/1.1" 200 -
+2025-07-06 22:48:54,227 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:54] "POST /reset_cancellation HTTP/1.1" 200 -
+2025-07-06 22:48:54,229 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:54] "GET /get_heroes HTTP/1.1" 200 -
+2025-07-06 22:48:54,231 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:54] "GET /get_player_name/302004172 HTTP/1.1" 200 -
+2025-07-06 22:48:54,231 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:54] "POST /call_function HTTP/1.1" 200 -
+2025-07-06 22:48:58,211 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:58] "POST /cancel_request HTTP/1.1" 200 -
+2025-07-06 22:48:58,211 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:58] "POST /reset_cancellation HTTP/1.1" 200 -
+2025-07-06 22:48:58,274 - INFO - 127.0.0.1 - - [06/Jul/2025 22:48:58] "POST /call_function HTTP/1.1" 200 -
+2025-07-06 22:49:01,632 - INFO - 127.0.0.1 - - [06/Jul/2025 22:49:01] "POST /cancel_request HTTP/1.1" 200 -
+2025-07-06 22:49:01,947 - INFO - 127.0.0.1 - - [06/Jul/2025 22:49:01] "POST /reset_cancellation HTTP/1.1" 200 -
+2025-07-06 22:49:01,958 - INFO - 127.0.0.1 - - [06/Jul/2025 22:49:01] "POST /call_function HTTP/1.1" 200 -

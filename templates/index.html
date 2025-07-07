@@ -18,7 +18,7 @@
 
     <!-- Hero Mode Selection -->
     <div id="hero_mode">
-        <label for="player_dropdown">Player ID:</label>
+        <label for="player_dropdown">Player:</label>
         <select id="player_dropdown"></select>
 
         <label for="hero_dropdown">Hero:</label>
@@ -37,9 +37,11 @@
     <div id="player_mode" style="display: none;">
         <label for="player_id">Your Account ID:</label>
         <input type="text" id="player_id" placeholder="302004172">
+        <span id="player_name_display"></span>
 
         <label for="others_account_id">Others Account ID:</label>
         <input type="text" id="others_account_id" placeholder="Enter Others Account ID">
+        <span id="other_player_name_display"></span>
 
         <label for="duration_dropdown_player">Duration:</label>
         <select id="duration_dropdown_player">
@@ -51,8 +53,6 @@
         </select>
     </div>
 
-    <button id="fetch_btn">Fetch Data</button>
-
     <div id="result">
         <!-- Rendered table and summary will go here -->
     </div>
@@ -62,14 +62,19 @@
             // Store current AJAX request for cancellation
             let currentRequest = null;
             
-            // Populate hero and player dropdowns via backend API if needed
-            // For demo purpose, hardcoded example options:
-            const playerOptions = [302004172, 129213402, 138951493];
-
-            playerOptions.forEach(p => $("#player_dropdown").append(`<option value="${p}">${p}</option>`));
+            // Populate hero and player dropdowns via backend API
+            // Fetch player names from backend
+            $.get("/get_players", function(data) {
+                data.players.forEach(player => {
+                    $("#player_dropdown").append(`<option value="${player.id}">${player.name}</option>`);
+                });
+                // Set default selection to player 302004172
+                $("#player_dropdown").val("302004172");
+            });
             
             // Fetch hero names from backend
             $.get("/get_heroes", function(data) {
+                $("#hero_dropdown").append(`<option value="All Hero">All Hero</option>`);
                 data.heroes.forEach(hero => {
                     $("#hero_dropdown").append(`<option value="${hero.name}">${hero.name}</option>`);
                 });
@@ -77,6 +82,12 @@
             
             // Default fill your account ID
             $("#player_id").val("302004172");
+            
+            // Fetch initial player names
+            fetchPlayerName("302004172", $("#player_name_display"));
+
+            // Initial data fetch
+            fetchData();
 
             // Function to abort current request
             function abortCurrentRequest() {
@@ -101,18 +112,8 @@
                 }
             });
 
-            // Abort request when any dropdown changes
-            $("#player_dropdown, #hero_dropdown, #duration_dropdown, #duration_dropdown_player").change(function() {
-                abortCurrentRequest();
-            });
-            
-            // Save my account ID when it changes
-            $("#player_id").on('input', function() {
-                localStorage.setItem('myAccountId', $(this).val());
-            });
-
-            // Fetch button click
-            $("#fetch_btn").click(function() {
+            // Function to fetch data
+            function fetchData() {
                 // Abort any existing request first
                 abortCurrentRequest();
                 
@@ -154,6 +155,36 @@
                     }
                     currentRequest = null;
                 });
+            }
+
+            // Auto-fetch when any input changes
+            $("#player_dropdown, #hero_dropdown, #duration_dropdown, #duration_dropdown_player").change(function() {
+                fetchData();
+            });
+            
+            // Function to fetch and display player name
+            function fetchPlayerName(accountId, displayElement) {
+                if (accountId && accountId.trim() !== '') {
+                    $.get(`/get_player_name/${accountId}`, function(data) {
+                        displayElement.text(`(${data.name})`);
+                    }).fail(function() {
+                        displayElement.text('(Unknown Player)');
+                    });
+                } else {
+                    displayElement.text('');
+                }
+            }
+
+            // Save my account ID when it changes and auto-fetch
+            $("#player_id").on('input', function() {
+                localStorage.setItem('myAccountId', $(this).val());
+                fetchPlayerName($(this).val(), $("#player_name_display"));
+            });
+
+            // Auto-fetch when other player ID changes
+            $("#others_account_id").on('input', function() {
+                fetchPlayerName($(this).val(), $("#other_player_name_display"));
+                fetchData();
             });
         });
     </script>

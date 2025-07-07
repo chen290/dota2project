@@ -6,6 +6,18 @@ import webbrowser
 import time
 import os
 import pandas as pd
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -22,26 +34,33 @@ def check_cancellation():
 
 def process_hero_mode(player_id, hero_name, seconds_ago, duration):
     """Process hero mode request"""
-    try:
-        selected_hero = next(k for k, v in dota_analysis.g_id_name_map.items() if v == hero_name)
-    except StopIteration:
-        return jsonify({"html": "<b>Invalid hero name selected.</b>"})
-    
     if not player_id:
         return jsonify({"html": "<b>Please provide a valid player ID.</b>"})
     
     try:
         matches = dota_analysis.Matches(int(player_id), check_cancellation)
-        df: pd.DataFrame = matches.get_stats_per_enemy_hero(selected_hero, seconds_ago)
         
-        if df.empty:
+        if hero_name == "All Hero":
+            # Get stats for all heroes
+            result_df: pd.DataFrame = matches.get_stats_per_enemy_hero(None, seconds_ago)
+            hero_filter = None
+        else:
+            # Get stats for specific hero
+            try:
+                selected_hero_id = next(k for k, v in dota_analysis.g_id_name_map.items() if v == hero_name)
+            except StopIteration:
+                return jsonify({"html": "<b>Invalid hero name selected.</b>"})
+            result_df: pd.DataFrame = matches.get_stats_per_enemy_hero(selected_hero_id, seconds_ago)
+            hero_filter = selected_hero_id
+        
+        if result_df.empty:
             html = f"<b>No data available for hero {hero_name} in the selected time period.</b>"
         else:
-            html_table = df.to_html(classes='display', index=False, border=0)
-            total_matches = df['Matches'].sum()
-            total_wins = df['Wins'].sum()
+            html_table = result_df.to_html(classes='display', index=False, border=0)
+            total_matches = matches.get_matches(hero_filter, seconds_ago)
+            total_wins = sum(1 for match in total_matches if match.get_winner_team() == match.get_team())
             html = f"""
-            <h3>Total Matches: {total_matches} | Total Wins: {total_wins}</h3>
+            <h3>Total Matches: {len(total_matches)} | Total Wins: {total_wins} | Win Rate: {total_wins / len(total_matches) * 100:.2f}%</h3>
             {html_table}
             """
         return jsonify({"html": html})
@@ -63,8 +82,11 @@ def process_player_mode(player_id, other_player_id, seconds_ago, duration):
             html = f"<b>No data available for player {other_player_id} in the selected time period.</b>"
         else:
             html_table = df.to_html(classes='display', index=False, border=0)
+            # Get player names for display
+            player_name = dota_analysis.get_player_name(int(player_id))
+            other_player_name = dota_analysis.get_player_name(int(other_player_id))
             html = f"""
-            <h3>Match History with {other_player_id}</h3>
+            <h3>Match History: {player_name} vs {other_player_name}</h3>
             {html_table}
             """
         return jsonify({"html": html})
@@ -101,7 +123,7 @@ def call_function():
     if mode == "Hero":
         return process_hero_mode(player_id, hero_name, seconds_ago, duration)
     else:
-        print(player_id, other_player_id, seconds_ago, duration)
+        logger.debug(f"Player mode request: {player_id}, {other_player_id}, {seconds_ago}, {duration}")
         return process_player_mode(player_id, other_player_id, seconds_ago, duration)
 
 
@@ -127,6 +149,29 @@ def get_heroes():
     """Get all hero names for the dropdown"""
     heroes = [{"name": name} for name in sorted(dota_analysis.g_id_name_map.values())]
     return jsonify({"heroes": heroes})
+
+@app.route("/get_players", methods=["GET"])
+def get_players():
+    """Get all player names for the dropdown"""
+    players = []
+    for account_id in dota_analysis.ACCOUNT_IDS:
+        try:
+            name = dota_analysis.get_player_name(account_id)
+            players.append({"id": account_id, "name": name})
+        except Exception as e:
+            logger.warning(f"Error getting name for player {account_id}: {e}")
+            players.append({"id": account_id, "name": f"Unknown Player ({account_id})"})
+    return jsonify({"players": players})
+
+@app.route("/get_player_name/<int:account_id>", methods=["GET"])
+def get_player_name(account_id):
+    """Get a single player's name"""
+    try:
+        name = dota_analysis.get_player_name(account_id)
+        return jsonify({"name": name})
+    except Exception as e:
+        logger.warning(f"Error getting name for player {account_id}: {e}")
+        return jsonify({"name": f"Unknown Player ({account_id})"})
 
 def open_browser():
     time.sleep(1)  # wait briefly to ensure server starts
